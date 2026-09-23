@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>极简待办清单 (Todo App)</title>
+  <!-- 引入组件独立样式 -->
+  <link rel="stylesheet" href="client/components/todo-input/todo-input.css">
+  <link rel="stylesheet" href="client/components/todo-footer/todo-footer.css">
   <style>
     :root {
       --bg-color: #f5f6f8;
@@ -32,22 +35,25 @@
 
     .container {
       width: 100%;
-      max-width: 500px;
+      max-width: 520px;
       background: var(--card-bg);
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     header {
-      margin-bottom: 20px;
+      margin-bottom: 4px;
     }
 
     h1 {
       font-size: 1.5rem;
       font-weight: 600;
       text-align: center;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .subtitle {
@@ -56,42 +62,12 @@
       text-align: center;
     }
 
-    .todo-form {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-
-    .todo-input {
-      flex: 1;
-      padding: 10px 14px;
-      font-size: 0.95rem;
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .todo-input:focus {
-      border-color: var(--primary);
-    }
-
-    .btn-add {
-      padding: 10px 18px;
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      font-size: 0.95rem;
-      cursor: pointer;
-      font-weight: 500;
-    }
-
     .todo-list {
       list-style: none;
       display: flex;
       flex-direction: column;
       gap: 10px;
+      min-height: 48px;
     }
 
     .todo-item {
@@ -103,6 +79,12 @@
       border: 1px solid var(--border-color);
       border-radius: 6px;
       transition: all 0.2s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .todo-item:hover {
+      background: #f3f4f6;
     }
 
     .todo-item-content {
@@ -121,6 +103,7 @@
     .todo-title {
       font-size: 0.95rem;
       word-break: break-word;
+      transition: color 0.2s;
     }
 
     .todo-item.completed .todo-title {
@@ -146,22 +129,28 @@
   <div class="container">
     <header>
       <h1>待办事项清单</h1>
-      <p class="subtitle">极简原生 HTML + JS 实现</p>
+      <p class="subtitle">极简原生 HTML + JS 组件化实现</p>
     </header>
 
-    <div class="todo-form">
-      <input type="text" id="newTodoInput" class="todo-input" placeholder="输入新的待办事项..." />
-      <button id="addTodoBtn" class="btn-add">添加</button>
-    </div>
+    <!-- TodoInput 组件挂载容器 -->
+    <div id="todoInputContainer"></div>
 
+    <!-- 待办列表 -->
     <ul id="todoList" class="todo-list">
       <!-- 待办项动态渲染 -->
     </ul>
+
+    <!-- TodoFooter 组件挂载容器 -->
+    <div id="todoFooterContainer"></div>
   </div>
 
+  <!-- 引入组件逻辑 -->
+  <script src="client/components/todo-input/todo-input.js"></script>
+  <script src="client/components/todo-footer/todo-footer.js"></script>
+
   <script>
-    // 1. 本地 Mock 假数据（符合之前约定的 TodoItem 结构）
-    const mockTodos = [
+    // 1. 本地初始/兜底数据（符合 TodoItem 结构规范）
+    const initialMockTodos = [
       {
         id: "1",
         title: "购买日用品",
@@ -185,44 +174,80 @@
       }
     ];
 
-    // 全局待办状态数据
+    // 全局状态
     let todos = [];
+    let currentFilter = 'all'; // 'all' | 'active' | 'completed'
+
+    // 组件实例引用
+    let todoInputInstance = null;
+    let todoFooterInstance = null;
 
     // DOM 元素引用
     const todoListElement = document.getElementById("todoList");
+    const todoInputContainer = document.getElementById("todoInputContainer");
+    const todoFooterContainer = document.getElementById("todoFooterContainer");
+
+    /**
+     * 过滤待办数据
+     */
+    function getFilteredTodos() {
+      if (currentFilter === 'active') {
+        return todos.filter(t => !t.completed);
+      }
+      if (currentFilter === 'completed') {
+        return todos.filter(t => t.completed);
+      }
+      return todos;
+    }
+
+    /**
+     * 更新 Footer 统计
+     */
+    function updateFooterStats() {
+      if (!todoFooterInstance) return;
+      const activeCount = todos.filter(t => !t.completed).length;
+      const completedCount = todos.filter(t => t.completed).length;
+      todoFooterInstance.update({
+        activeCount: activeCount,
+        completedCount: completedCount
+      });
+    }
 
     /**
      * 渲染待办列表到页面
-     * @param {Array} items 
      */
-    function renderTodos(items) {
+    function render() {
+      const items = getFilteredTodos();
       if (!items || items.length === 0) {
-        todoListElement.innerHTML = '<li class="empty-state">暂无待办事项</li>';
-        return;
+        let emptyTip = '暂无待办事项';
+        if (currentFilter === 'active') emptyTip = '没有未完成的待办事项';
+        if (currentFilter === 'completed') emptyTip = '没有已完成的待办事项';
+        todoListElement.innerHTML = `<li class="empty-state">${emptyTip}</li>`;
+      } else {
+        todoListElement.innerHTML = items
+          .map(todo => {
+            const formattedDate = new Date(todo.createdAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit"
+            });
+            return `
+              <li class="todo-item ${todo.completed ? "completed" : ""}" data-id="${todo.id}">
+                <div class="todo-item-content">
+                  <input 
+                    type="checkbox" 
+                    class="todo-checkbox" 
+                    ${todo.completed ? "checked" : ""}
+                  />
+                  <span class="todo-title">${escapeHtml(todo.title)}</span>
+                </div>
+                <span class="todo-meta">${formattedDate}</span>
+              </li>
+            `;
+          })
+          .join("");
       }
 
-      todoListElement.innerHTML = items
-        .map(todo => {
-          const formattedDate = new Date(todo.createdAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit"
-          });
-          return `
-            <li class="todo-item ${todo.completed ? "completed" : ""}" data-id="${todo.id}">
-              <div class="todo-item-content">
-                <input 
-                  type="checkbox" 
-                  class="todo-checkbox" 
-                  ${todo.completed ? "checked" : ""}
-                  disabled
-                />
-                <span class="todo-title">${escapeHtml(todo.title)}</span>
-              </div>
-              <span class="todo-meta">${formattedDate}</span>
-            </li>
-          `;
-        })
-        .join("");
+      updateFooterStats();
     }
 
     /**
@@ -238,11 +263,62 @@
     }
 
     /**
-     * 标准 fetchTodos 函数：预留向后端 GET /api/todos 发起请求的逻辑
-     * 后端未就绪时自动 fallback 到 mockTodos 进行渲染
+     * 切换待办状态
+     */
+    function toggleTodoStatus(id) {
+      const target = todos.find(t => t.id === id);
+      if (target) {
+        target.completed = !target.completed;
+        target.updatedAt = new Date().toISOString();
+        render();
+      }
+    }
+
+    /**
+     * 处理新增待办事项
+     */
+    async function handleAddTodo(title) {
+      const newTodo = {
+        id: Date.now().toString(),
+        title: title,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // 向后发起创建请求（预留向后端发送 POST /api/todos）
+      try {
+        await fetch("http://localhost:3000/api/todos", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({ title: title })
+        });
+      } catch (e) {
+        // 后端若未实现 POST 路由或未启动服务，保持前端正常添加体验
+        console.warn("[handleAddTodo] 异步同步服务端跳过 (接口未就绪或未启动):", e.message);
+      }
+
+      // 本地状态变更并更新视图
+      todos.unshift(newTodo);
+      render();
+    }
+
+    /**
+     * 清理所有已完成待办
+     */
+    function handleClearCompleted() {
+      todos = todos.filter(t => !t.completed);
+      render();
+    }
+
+    /**
+     * 请求后端 GET /api/todos
      */
     async function fetchTodos() {
-      const API_URL = "http://localhost:3001/api/todos";
+      const API_URL = "http://localhost:3000/api/todos";
       try {
         const response = await fetch(API_URL, {
           method: "GET",
@@ -256,23 +332,50 @@
         }
 
         const resData = await response.json();
-        // 约定响应格式: { code: 0, message: "success", data: [...] }
-        if (resData && resData.code === 0 && Array.isArray(resData.data)) {
+        if (resData && resData.code === 0 && Array.isArray(resData.data) && resData.data.length > 0) {
           todos = resData.data;
-          renderTodos(todos);
-          return;
+        } else {
+          // 若后端返回空列表，使用演示初始数据提供良好首屏体验
+          todos = [...initialMockTodos];
         }
-        throw new Error("Invalid response format");
       } catch (err) {
-        console.warn(`[fetchTodos] 后端服务未就绪或请求失败 (${err.message})，降级使用假数据展示。`);
-        // 使用假数据兜底展示
-        todos = [...mockTodos];
-        renderTodos(todos);
+        console.warn(`[fetchTodos] 后端服务未就绪 (${err.message})，使用演示数据展示。`);
+        todos = [...initialMockTodos];
       }
+      render();
     }
 
-    // 页面初始化时执行
+    // 事件委托绑定列表内点击与 checkbox 切换
+    todoListElement.addEventListener('click', (e) => {
+      const itemEl = e.target.closest('.todo-item');
+      if (!itemEl) return;
+      const todoId = itemEl.getAttribute('data-id');
+      toggleTodoStatus(todoId);
+    });
+
+    // 页面初始化
     document.addEventListener("DOMContentLoaded", () => {
+      // 1. 实例化 TodoInput 组件
+      if (typeof window.createTodoInput === 'function') {
+        todoInputInstance = window.createTodoInput(todoInputContainer, {
+          placeholder: '想做点什么？输入后按回车或点击添加',
+          onSubmit: handleAddTodo
+        });
+      }
+
+      // 2. 实例化 TodoFooter 组件
+      if (typeof window.createTodoFooter === 'function') {
+        todoFooterInstance = window.createTodoFooter(todoFooterContainer, {
+          activeFilter: currentFilter,
+          onFilterChange: (newFilter) => {
+            currentFilter = newFilter;
+            render();
+          },
+          onClearCompleted: handleClearCompleted
+        });
+      }
+
+      // 3. 拉取并初次渲染
       fetchTodos();
     });
   </script>
